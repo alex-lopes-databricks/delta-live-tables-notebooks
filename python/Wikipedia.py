@@ -1,4 +1,23 @@
 # Databricks notebook source
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+import dlt
+
+# COMMAND ----------
+
+import sys
+sys.path.append("/Workspace/Repos/dlt/delta-live-tables-notebooks/python/")
+
+# COMMAND ----------
+
+from another_file import external_func
+
+# COMMAND ----------
+
+dbutils.fs.mkdirs("/tmp/mydir2")
+
+# COMMAND ----------
+
 # 
 # Wikipedia Clickstream
 # An example Delta Live Tables pipeline that ingests wikipedia click stream data and builds some simple summary tables.
@@ -7,9 +26,7 @@
 #   More information of the columns can be found at: https://meta.wikimedia.org/wiki/Research:Wikipedia_clickstream
 #
 
-from pyspark.sql.functions import *
-from pyspark.sql.types import *
-import dlt
+
 
 json_path = "/databricks-datasets/wikipedia-datasets/data-001/clickstream/raw-uncompressed-json/2015_2_clickstream.json"
 
@@ -19,10 +36,10 @@ json_path = "/databricks-datasets/wikipedia-datasets/data-001/clickstream/raw-un
     "quality": "bronze"
   }
 )
-def clickstream_raw():          
-  return (
-    spark.read.option("inferSchema", "true").json(json_path)
-  )
+def clickstream_raw():  
+    new_dir_name = spark.conf.get("my_dir_name")
+    dbutils.fs.mkdirs("/tmp/" + new_dir_name)
+    return external_func(spark)
 
 
 @dlt.create_table(
@@ -34,7 +51,7 @@ def clickstream_raw():
 @dlt.expect("valid_current_page", "current_page_id IS NOT NULL AND current_page_title IS NOT NULL")
 @dlt.expect_or_fail("valid_count", "click_count > 0")
 def clickstream_clean():
-  return (
+    return (
     dlt.read("clickstream_raw")
       .withColumn("current_page_id", expr("CAST(curr_id AS INT)"))
       .withColumn("click_count", expr("CAST(n AS INT)"))
@@ -42,7 +59,7 @@ def clickstream_clean():
       .withColumnRenamed("curr_title", "current_page_title")
       .withColumnRenamed("prev_title", "previous_page_title")
       .select("current_page_id", "current_page_title", "click_count", "previous_page_id", "previous_page_title")
-  )
+    )
 
 
 @dlt.create_table(
@@ -52,14 +69,14 @@ def clickstream_clean():
   }  
 )
 def top_spark_referrers():
-  return (
+    return (
     dlt.read("clickstream_clean")
       .filter(expr("current_page_title == 'Apache_Spark'"))
       .withColumnRenamed("previous_page_title", "referrer")
       .sort(desc("click_count"))
       .select("referrer", "click_count")
       .limit(10)
-  )
+    )
 
 
 @dlt.create_table(
@@ -69,10 +86,10 @@ def top_spark_referrers():
   }  
 )
 def top_pages():
-  return (
+    return (
     dlt.read("clickstream_clean")
       .groupBy("current_page_title")
       .agg(sum("click_count").alias("total_clicks"))
       .sort(desc("total_clicks"))
       .limit(50)
-  )
+    )
